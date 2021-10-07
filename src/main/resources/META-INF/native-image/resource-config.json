@@ -1,0 +1,5 @@
+{
+  "resources":{
+  "includes":[{"pattern":"\\Qfxml/main.fxml\\E"}]},
+  "bundles":[{"name":"com.sun.javafx.tk.quantum.QuantumMessagesBundle"}]
+}
