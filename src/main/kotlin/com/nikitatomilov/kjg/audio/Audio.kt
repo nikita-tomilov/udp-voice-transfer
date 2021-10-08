@@ -15,14 +15,16 @@ class Audio {
   private val shouldStop = AtomicBoolean(false)
 
   private val bytesIncoming = AtomicInteger(0)
-
+  private val packagesIncoming = AtomicInteger(0)
   private val bytesOutcoming = AtomicInteger(0)
+  private val packagesOutcoming = AtomicInteger(0)
 
   fun start(
     micLine: TargetDataLine,
     spkLine: SourceDataLine,
     sampleRate: Float,
     sampleSizeBits: Int,
+    packetSize: Int,
     ex: ExecutorService,
     micData: (ByteArray) -> Unit,
     spkData: () -> ByteArray,
@@ -39,10 +41,11 @@ class Audio {
       ex.submit {
         while (!shouldStop.get()) {
           try {
-            val data = ByteArray(CHUNK_SIZE)
+            val data = ByteArray(packetSize)
             micLine.read(data, 0, data.size)
             micData(data)
             bytesOutcoming.addAndGet(data.size)
+            packagesOutcoming.incrementAndGet()
           } catch (e: Exception) {
             logger.error { "Error in mic thread: $e" }
           }
@@ -53,6 +56,7 @@ class Audio {
           try {
             val data = spkData()
             bytesIncoming.addAndGet(data.size)
+            packagesIncoming.incrementAndGet()
             spkLine.write(data, 0, data.size)
           } catch (e: Exception) {
             logger.error { "Error in spk thread: $e" }
@@ -63,10 +67,12 @@ class Audio {
         while (!shouldStop.get()) {
           val bi = bytesIncoming.getAndSet(0)
           val bo = bytesOutcoming.getAndSet(0)
+          val pi = packagesIncoming.getAndSet(0)
+          val po = packagesOutcoming.getAndSet(0)
           stats(
               """
-            Incoming: $bi bytes/sec
-            Outcoming: $bo bytes/sec
+            Incoming: $bi bytes/sec $pi packets/sec
+            Outcoming: $bo bytes/sec $po packets/sec
           """.trimIndent())
           Thread.sleep(1000)
         }

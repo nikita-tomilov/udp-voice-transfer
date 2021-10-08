@@ -2,6 +2,8 @@ package com.nikitatomilov.kjg.gui
 
 import com.nikitatomilov.kjg.audio.Audio
 import com.nikitatomilov.kjg.audio.AvailableAudioDeviceType
+import com.nikitatomilov.kjg.audio.CallParams
+import com.nikitatomilov.kjg.util.MessageBoxes
 import javafx.application.Platform
 import javafx.event.ActionEvent
 import javafx.scene.control.Button
@@ -31,34 +33,11 @@ class MainView : View() {
     this.currentWindow!!.addEventFilter(WindowEvent.WINDOW_CLOSE_REQUEST) { System.exit(0) }
     val s = find<AudioSettings>()
 
-    var targetHost = ""
-    var targetPort = 0
-    var listenAtPort = 0
-
-    s.onAccept = { startConversation(targetHost, targetPort, listenAtPort) }
-    s.targetHostPortCallback = {
-      try {
-        val h = it.split(":")[0]
-        val p = it.split(":")[1]
-        targetHost = h
-        targetPort = p.toInt()
-        logger.info { "host $h port $p" }
-      } catch (e: Exception) {
-
-      }
-    }
-    s.listenAtPortCallback = {
-      try {
-        listenAtPort = it.toInt()
-        logger.info { "listen at $it" }
-      } catch (e: Exception) {
-
-      }
-    }
+    s.onAccept = { startConversation(it) }
     s.openWindow()
   }
 
-  private fun startConversation(targetHost: String, targetPort: Int, listenPort: Int) {
+  private fun startConversation(params: CallParams) {
     cmdHelloWorld.text = "Started"
     cmdHelloWorld.isDisable = true
 
@@ -76,25 +55,26 @@ class MainView : View() {
     val mic = mics.first().line as TargetDataLine
     val spk = spks.first().line as SourceDataLine
 
-    val outcomingAddress = InetSocketAddress(targetHost, targetPort)
+    val outcomingAddress = InetSocketAddress(params.targetHost, params.targetPort)
     val outcomingSocket = DatagramSocket()
 
-    val incomingAddress = InetSocketAddress("0.0.0.0", listenPort)
+    val incomingAddress = InetSocketAddress("0.0.0.0", params.listenPort)
     val incomingSocket = DatagramSocket(incomingAddress)
 
     val ex = Executors.newFixedThreadPool(8)
     a.start(
         mic,
         spk,
-        Audio.RATE,
-        Audio.SAMPLE_SIZE_BITS,
+        params.sampleRate,
+        params.bitsPerSample,
+        params.packetSize,
         ex,
         {
           val dp = DatagramPacket(it, it.size, outcomingAddress)
           outcomingSocket.send(dp)
         },
         {
-          val db = ByteArray(Audio.CHUNK_SIZE)
+          val db = ByteArray(params.packetSize)
           val dp = DatagramPacket(db, db.size)
           incomingSocket.receive(dp)
           db
@@ -107,35 +87,49 @@ class MainView : View() {
 
 class AudioSettings : View() {
 
-  lateinit var targetHostPortCallback: (String) -> Unit
-
-  lateinit var listenAtPortCallback: (String) -> Unit
-
-  lateinit var onAccept: () -> Unit
-
-  lateinit var t1: TextField
-
-  lateinit var t2: TextField
+  lateinit var onAccept: (CallParams) -> Unit
+  lateinit var hostPort: TextField
+  lateinit var listenPort: TextField
+  lateinit var samplingFreq: TextField
+  lateinit var bitsPerSample: TextField
+  lateinit var chunkSize: TextField
 
   override val root = vbox {
     hbox {
       label("Send to")
-      t1 = textfield("127.0.0.1:50150") {
-        textProperty().addListener { _, _, newValue -> targetHostPortCallback(newValue) }
-      }
+      hostPort = textfield("127.0.0.1:50150")
     }
     hbox {
       label("Listen at")
-      t2 = textfield("50150") {
-        textProperty().addListener { _, _, newValue -> listenAtPortCallback(newValue) }
-      }
+      listenPort = textfield("50150")
+    }
+    hbox {
+      label("Sampling freq")
+      samplingFreq = textfield("16000")
+    }
+    hbox {
+      label("Bits per sample")
+      bitsPerSample = textfield("16")
+    }
+    hbox {
+      label("Chunk size")
+      chunkSize = textfield("128")
     }
     button("ok") {
       action {
-        targetHostPortCallback(t1.text)
-        listenAtPortCallback(t2.text)
-        onAccept()
-        find<AudioSettings>().close()
+        try {
+          val h = hostPort.text.split(":")[0]
+          val p = hostPort.text.split(":")[1].toInt()
+          val l = listenPort.text.toInt()
+          val sf = samplingFreq.text.toFloat()
+          val bps = bitsPerSample.text.toInt()
+          val cs = chunkSize.text.toInt()
+          val params = CallParams(h, p, l, sf, bps, cs)
+          onAccept(params)
+          find<AudioSettings>().close()
+        } catch (e: Exception) {
+          MessageBoxes.showAlert(e.toString(), "Error")
+        }
       }
     }
   }
